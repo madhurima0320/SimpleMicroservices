@@ -13,6 +13,8 @@ from typing import Optional
 
 from models.person import PersonCreate, PersonRead, PersonUpdate
 from models.address import AddressCreate, AddressRead, AddressUpdate
+from models.course import CourseCreate, CourseRead, CourseUpdate
+from models.enrollment import EnrollmentCreate, EnrollmentRead, EnrollmentUpdate, EnrollmentStatus
 from models.health import Health
 
 port = int(os.environ.get("FASTAPIPORT", 8000))
@@ -22,11 +24,13 @@ port = int(os.environ.get("FASTAPIPORT", 8000))
 # -----------------------------------------------------------------------------
 persons: Dict[UUID, PersonRead] = {}
 addresses: Dict[UUID, AddressRead] = {}
+courses: Dict[UUID, CourseRead] = {}
+enrollments: Dict[UUID, EnrollmentRead] = {}
 
 app = FastAPI(
-    title="Person/Address API",
-    description="Demo FastAPI app using Pydantic v2 models for Person and Address",
-    version="0.1.0",
+    title="University Management API",
+    description="FastAPI app using Pydantic v2 models for Person, Address, Course, and Enrollment management",
+    version="0.2.0",
 )
 
 # -----------------------------------------------------------------------------
@@ -160,11 +164,156 @@ def update_person(person_id: UUID, update: PersonUpdate):
     return persons[person_id]
 
 # -----------------------------------------------------------------------------
+# Course endpoints
+# -----------------------------------------------------------------------------
+@app.post("/courses", response_model=CourseRead, status_code=201)
+def create_course(course: CourseCreate):
+    # Each course gets its own UUID; stored as CourseRead
+    course_read = CourseRead(**course.model_dump())
+    courses[course_read.id] = course_read
+    return course_read
+
+@app.get("/courses", response_model=List[CourseRead])
+def list_courses(
+    course_id: Optional[str] = Query(None, description="Filter by course ID"),
+    name: Optional[str] = Query(None, description="Filter by course name"),
+    department: Optional[str] = Query(None, description="Filter by department"),
+    instructor_uni: Optional[str] = Query(None, description="Filter by instructor UNI"),
+    semester: Optional[str] = Query(None, description="Filter by semester"),
+    credits: Optional[int] = Query(None, description="Filter by number of credits"),
+):
+    results = list(courses.values())
+
+    if course_id is not None:
+        results = [c for c in results if c.course_id == course_id]
+    if name is not None:
+        results = [c for c in results if name.lower() in c.name.lower()]
+    if department is not None:
+        results = [c for c in results if c.department == department]
+    if instructor_uni is not None:
+        results = [c for c in results if c.instructor_uni == instructor_uni]
+    if semester is not None:
+        results = [c for c in results if c.semester == semester]
+    if credits is not None:
+        results = [c for c in results if c.credits == credits]
+
+    return results
+
+@app.get("/courses/{course_uuid}", response_model=CourseRead)
+def get_course(course_uuid: UUID):
+    if course_uuid not in courses:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return courses[course_uuid]
+
+@app.patch("/courses/{course_uuid}", response_model=CourseRead)
+def update_course(course_uuid: UUID, update: CourseUpdate):
+    if course_uuid not in courses:
+        raise HTTPException(status_code=404, detail="Course not found")
+    stored = courses[course_uuid].model_dump()
+    stored.update(update.model_dump(exclude_unset=True))
+    courses[course_uuid] = CourseRead(**stored)
+    return courses[course_uuid]
+
+@app.put("/courses/{course_uuid}", response_model=CourseRead)
+def replace_course(course_uuid: UUID, course: CourseCreate):
+    """Replace entire course resource (PUT - complete replacement)."""
+    if course_uuid not in courses:
+        raise HTTPException(status_code=404, detail="Course not found")
+    existing = courses[course_uuid]
+    course_read = CourseRead(
+        id=course_uuid,
+        created_at=existing.created_at,  
+        updated_at=datetime.utcnow(),    # Update the modification time
+        **course.model_dump()
+    )
+    courses[course_uuid] = course_read
+    return course_read
+
+@app.delete("/courses/{course_uuid}")
+def delete_course(course_uuid: UUID):
+    """Delete a course resource."""
+    if course_uuid not in courses:
+        raise HTTPException(status_code=404, detail="Course not found")
+    del courses[course_uuid]
+    return {"message": "Course deleted successfully"}
+
+# -----------------------------------------------------------------------------
+# Enrollment endpoints
+# -----------------------------------------------------------------------------
+@app.post("/enrollments", response_model=EnrollmentRead, status_code=201)
+def create_enrollment(enrollment: EnrollmentCreate):
+    # Each enrollment gets its own UUID; stored as EnrollmentRead
+    enrollment_read = EnrollmentRead(**enrollment.model_dump())
+    enrollments[enrollment_read.id] = enrollment_read
+    return enrollment_read
+
+@app.get("/enrollments", response_model=List[EnrollmentRead])
+def list_enrollments(
+    student_uni: Optional[str] = Query(None, description="Filter by student UNI"),
+    course_id: Optional[str] = Query(None, description="Filter by course ID"),
+    status: Optional[EnrollmentStatus] = Query(None, description="Filter by enrollment status"),
+    enrollment_date: Optional[str] = Query(None, description="Filter by enrollment date (YYYY-MM-DD)"),
+    grade: Optional[str] = Query(None, description="Filter by grade"),
+):
+    results = list(enrollments.values())
+
+    if student_uni is not None:
+        results = [e for e in results if e.student_uni == student_uni]
+    if course_id is not None:
+        results = [e for e in results if e.course_id == course_id]
+    if status is not None:
+        results = [e for e in results if e.status == status]
+    if enrollment_date is not None:
+        results = [e for e in results if str(e.enrollment_date) == enrollment_date]
+    if grade is not None:
+        results = [e for e in results if e.grade == grade]
+
+    return results
+
+@app.get("/enrollments/{enrollment_id}", response_model=EnrollmentRead)
+def get_enrollment(enrollment_id: UUID):
+    if enrollment_id not in enrollments:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+    return enrollments[enrollment_id]
+
+@app.patch("/enrollments/{enrollment_id}", response_model=EnrollmentRead)
+def update_enrollment(enrollment_id: UUID, update: EnrollmentUpdate):
+    if enrollment_id not in enrollments:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+    stored = enrollments[enrollment_id].model_dump()
+    stored.update(update.model_dump(exclude_unset=True))
+    enrollments[enrollment_id] = EnrollmentRead(**stored)
+    return enrollments[enrollment_id]
+
+@app.put("/enrollments/{enrollment_id}", response_model=EnrollmentRead)
+def replace_enrollment(enrollment_id: UUID, enrollment: EnrollmentCreate):
+    """Replace entire enrollment resource (PUT - complete replacement)."""
+    if enrollment_id not in enrollments:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+    existing = enrollments[enrollment_id]
+    enrollment_read = EnrollmentRead(
+        id=enrollment_id,
+        created_at=existing.created_at,  
+        updated_at=datetime.utcnow(),    # Update the modification time
+        **enrollment.model_dump()
+    )
+    enrollments[enrollment_id] = enrollment_read
+    return enrollment_read
+
+@app.delete("/enrollments/{enrollment_id}")
+def delete_enrollment(enrollment_id: UUID):
+    """Delete an enrollment resource."""
+    if enrollment_id not in enrollments:
+        raise HTTPException(status_code=404, detail="Enrollment not found")
+    del enrollments[enrollment_id]
+    return {"message": "Enrollment deleted successfully"}
+
+# -----------------------------------------------------------------------------
 # Root
 # -----------------------------------------------------------------------------
 @app.get("/")
 def root():
-    return {"message": "Welcome to the Person/Address API. See /docs for OpenAPI UI."}
+    return {"message": "Welcome to the University Management API. See /docs for OpenAPI UI."}
 
 # -----------------------------------------------------------------------------
 # Entrypoint for `python main.py`
